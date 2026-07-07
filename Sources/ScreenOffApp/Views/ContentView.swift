@@ -104,61 +104,41 @@ private struct DetailView: View {
     @Binding var manualRestoreID: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            header
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if let disabled = store.selectedDisabledDisplay {
+                        DisabledDisplayDetail(display: disabled)
+                    } else if let display = store.selectedDisplay {
+                        ActiveDisplayDetail(display: display, pendingDisable: $pendingDisable)
+                    } else {
+                        EmptySelectionView()
+                    }
 
-            Divider()
+                    Divider()
 
-            if let disabled = store.selectedDisabledDisplay {
-                DisabledDisplayDetail(display: disabled)
-            } else if let display = store.selectedDisplay {
-                ActiveDisplayDetail(display: display, pendingDisable: $pendingDisable)
-            } else {
-                EmptySelectionView()
-            }
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Controls")
+                            .font(.headline)
+                        BackendPicker()
+                            .frame(maxWidth: 560)
+                        ManualRestoreView(manualRestoreID: $manualRestoreID)
+                    }
 
-            BackendPicker()
-            ManualRestoreView(manualRestoreID: $manualRestoreID)
-
-            Spacer()
-
-            if let error = store.errorMessage {
-                Text(error)
-                    .font(.callout)
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
-            }
-
-            HStack {
-                if store.isBusy {
-                    ProgressView()
-                        .controlSize(.small)
+                    if let error = store.errorMessage {
+                        Text(error)
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                            .textSelection(.enabled)
+                    }
                 }
-                Text(store.status)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                Spacer()
+                .frame(maxWidth: 760, alignment: .leading)
+                .padding(24)
+                .padding(.bottom, 18)
             }
+
         }
-        .padding(24)
         .navigationTitle("Control")
-    }
-
-    private var header: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "rectangle.2.swap")
-                .font(.system(size: 28))
-                .foregroundStyle(.blue)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("ScreenOff")
-                    .font(.title2.weight(.semibold))
-                Text("Turn displays off and restore them from the macOS desktop layout.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-        }
     }
 }
 
@@ -166,12 +146,19 @@ private struct BackendPicker: View {
     @EnvironmentObject private var store: DisplayStore
 
     var body: some View {
-        Picker("Backend", selection: $store.selectedBackend) {
-            ForEach(DisplayBackend.allCases) { backend in
-                Text(backend.label).tag(backend)
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+            GridRow {
+                Text("Backend")
+                    .foregroundStyle(.secondary)
+                Picker("Backend", selection: $store.selectedBackend) {
+                    ForEach(DisplayBackend.allCases) { backend in
+                        Text(backend.label).tag(backend)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
             }
         }
-        .pickerStyle(.segmented)
     }
 }
 
@@ -184,29 +171,25 @@ private struct ManualRestoreView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Restore by ID")
-                .font(.headline)
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+            GridRow {
+                Text("Restore")
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    TextField("Display ID", text: $manualRestoreID)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 140)
 
-            HStack {
-                TextField("Display ID", text: $manualRestoreID)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 140)
-
-                Button {
-                    guard let id = parsedID else { return }
-                    Task { await store.restore(id: id) }
-                } label: {
-                    Label("Restore", systemImage: "rectangle.badge.plus")
+                    Button {
+                        guard let id = parsedID else { return }
+                        Task { await store.restore(id: id) }
+                    } label: {
+                        Label("Restore", systemImage: "rectangle.badge.plus")
+                    }
+                    .disabled(parsedID == nil || store.isBusy)
                 }
-                .disabled(parsedID == nil || store.isBusy)
             }
-
-            Text("Use this when an off display is not listed. Enter the display ID reported by the CLI.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
         }
-        .padding(.top, 4)
     }
 }
 
@@ -231,15 +214,16 @@ private struct ActiveDisplayDetail: View {
     @Binding var pendingDisable: DisplayItem?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: display.isBuiltIn ? "laptopcomputer" : "display")
-                    .font(.system(size: 44))
+                    .font(.system(size: 42))
                     .foregroundStyle(display.isMain ? .blue : .primary)
+                    .frame(width: 54)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(display.displayTitle)
-                        .font(.title3.weight(.semibold))
+                        .font(.title2.weight(.semibold))
                     Text("Display ID \(display.id)")
                         .foregroundStyle(.secondary)
                 }
@@ -290,14 +274,15 @@ private struct DisabledDisplayDetail: View {
     let display: DisabledDisplayRecord
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "display.trianglebadge.exclamationmark")
-                    .font(.system(size: 44))
+                    .font(.system(size: 42))
                     .foregroundStyle(.orange)
+                    .frame(width: 54)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(display.title)
-                        .font(.title3.weight(.semibold))
+                        .font(.title2.weight(.semibold))
                     Text("Turned off from the desktop layout")
                         .foregroundStyle(.secondary)
                 }
