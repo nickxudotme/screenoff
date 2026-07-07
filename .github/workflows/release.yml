@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without the leading v, for example 0.1.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          TAG="v${VERSION}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+
+      - name: Update bundle version
+        run: |
+          set -euo pipefail
+          plutil -replace CFBundleShortVersionString -string "$VERSION" Resources/ScreenOff-Info.plist
+          plutil -replace CFBundleVersion -string "$GITHUB_RUN_NUMBER" Resources/ScreenOff-Info.plist
+
+      - name: Build app bundle
+        run: ./scripts/build-release.sh
+
+      - name: Package zip
+        run: |
+          set -euo pipefail
+          ZIP="dist/ScreenOff-${VERSION}.zip"
+          rm -f "$ZIP"
+          ditto -c -k --sequesterRsrc --keepParent dist/ScreenOff.app "$ZIP"
+          SHA256="$(shasum -a 256 "$ZIP" | awk '{print $1}')"
+          echo "ZIP=${ZIP}" >> "$GITHUB_ENV"
+          echo "SHA256=${SHA256}" >> "$GITHUB_ENV"
+          {
+            echo "## ScreenOff ${VERSION}"
+            echo
+            echo "Unsigned macOS build."
+            echo
+            echo "SHA-256:"
+            echo
+            echo "\`\`\`"
+            echo "${SHA256}"
+            echo "\`\`\`"
+          } > release-notes.md
+
+      - name: Ensure tag exists
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Publish GitHub release
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" \
+              --title "ScreenOff ${VERSION}" \
+              --notes-file release-notes.md
+          fi
+
+      - name: Update Homebrew tap
+        if: env.TAP_GITHUB_TOKEN != ''
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/homebrew-tap
+          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/nickxudotme/homebrew-tap.git" /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
+          perl -0pi -e 's/version ".*?"/version "$ENV{VERSION}"/' Casks/screenoff.rb
+          perl -0pi -e 's/sha256 ".*?"/sha256 "$ENV{SHA256}"/' Casks/screenoff.rb
+          ruby -c Casks/screenoff.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/screenoff.rb
+          if git diff --cached --quiet; then
+            echo "Homebrew tap is already up to date."
+          else
+            git commit -m "Update ScreenOff to ${VERSION}"
+            git push
+          fi
+
+      - name: Homebrew tap token notice
+        if: env.TAP_GITHUB_TOKEN == ''
+        run: |
+          echo "TAP_GITHUB_TOKEN is not configured, so the Homebrew tap was not updated automatically."

@@ -19,6 +19,8 @@ The default backend uses macOS display topology control. When a display is turne
 brew install --cask nickxudotme/tap/screenoff
 ```
 
+ScreenOff is currently unsigned and not notarized. Homebrew can install it, but macOS may require manual approval in System Settings > Privacy & Security before the GUI opens for the first time.
+
 ## Build
 
 Build the command line tool and GUI executable:
@@ -104,3 +106,7 @@ The CoreGraphics backend depends on private macOS symbols, so it may break on fu
 ## Vendored Code
 
 The optional `m1ddc` helper is vendored from <https://github.com/waydabber/m1ddc> and is MIT licensed. Its license is included at `Vendor/m1ddc/LICENSE` and copied into the app bundle by the release script.
+
+## Releases
+
+See [docs/release.md](docs/release.md) for the current unsigned release workflow and the future signing/notarization path.
