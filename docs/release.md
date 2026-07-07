@@ -36,6 +36,12 @@ sha256 "<zip sha256>"
 
 Homebrew can install the app and CLI, but macOS Gatekeeper may block the GUI on first launch because the app is unsigned and not notarized.
 
+If macOS reports that the app is damaged, remove the quarantine attribute after installation:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/ScreenOff.app
+```
+
 When an Apple Developer account is available, add these steps before packaging:
 
 1. Sign `ScreenOff.app`, `ScreenOffApp`, `screenoff`, and `m1ddc` with Developer ID.

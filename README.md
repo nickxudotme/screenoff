@@ -21,6 +21,12 @@ brew install --cask nickxudotme/tap/screenoff
 
 ScreenOff is currently unsigned and not notarized. Homebrew can install it, but macOS may require manual approval in System Settings > Privacy & Security before the GUI opens for the first time.
 
+If macOS says the app is damaged, remove the quarantine attribute after installing:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/ScreenOff.app
+```
+
 ## Build
 
 Build the command line tool and GUI executable:

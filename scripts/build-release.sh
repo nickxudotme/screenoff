@@ -29,4 +29,12 @@ fi
 
 chmod +x "$MACOS_DIR/ScreenOffApp" "$RESOURCES_DIR/screenoff"
 
+if command -v codesign >/dev/null 2>&1; then
+  codesign --force --sign - "$RESOURCES_DIR/screenoff"
+  if [ -x "$RESOURCES_DIR/m1ddc" ]; then
+    codesign --force --sign - "$RESOURCES_DIR/m1ddc"
+  fi
+  codesign --force --deep --sign - "$APP_DIR"
+fi
+
 echo "Built $APP_DIR"
