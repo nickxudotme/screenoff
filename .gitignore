@@ -1,0 +1,8 @@
+.build/
+.swiftpm/
+dist/
+outputs/
+work/
+Vendor/m1ddc/.objects/
+Vendor/m1ddc/m1ddc
+.DS_Store
