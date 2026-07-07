@@ -19,7 +19,7 @@ jobs:
     runs-on: macos-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+      TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
 
     steps:
       - name: Checkout
@@ -88,11 +88,17 @@ jobs:
           fi
 
       - name: Update Homebrew tap
-        if: env.TAP_GITHUB_TOKEN != ''
+        if: env.TAP_DEPLOY_KEY != ''
         run: |
           set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$TAP_DEPLOY_KEY" > ~/.ssh/screenoff_homebrew_tap
+          chmod 600 ~/.ssh/screenoff_homebrew_tap
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/screenoff_homebrew_tap -o IdentitiesOnly=yes"
           rm -rf /tmp/homebrew-tap
-          git clone "https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/nickxudotme/homebrew-tap.git" /tmp/homebrew-tap
+          git clone "git@github.com:nickxudotme/homebrew-tap.git" /tmp/homebrew-tap
           cd /tmp/homebrew-tap
           perl -0pi -e 's/version ".*?"/version "$ENV{VERSION}"/' Casks/screenoff.rb
           perl -0pi -e 's/sha256 ".*?"/sha256 "$ENV{SHA256}"/' Casks/screenoff.rb
@@ -107,7 +113,7 @@ jobs:
             git push
           fi
 
-      - name: Homebrew tap token notice
-        if: env.TAP_GITHUB_TOKEN == ''
+      - name: Homebrew tap deploy key notice
+        if: env.TAP_DEPLOY_KEY == ''
         run: |
-          echo "TAP_GITHUB_TOKEN is not configured, so the Homebrew tap was not updated automatically."
+          echo "TAP_DEPLOY_KEY is not configured, so the Homebrew tap was not updated automatically."

@@ -20,10 +20,10 @@ The workflow builds `ScreenOff.app`, packages `ScreenOff-<version>.zip`, creates
 To let the workflow update `nickxudotme/homebrew-tap` automatically, add this secret to the `screenoff` GitHub repository:
 
 ```text
-TAP_GITHUB_TOKEN
+TAP_DEPLOY_KEY
 ```
 
-The token needs write access to `nickxudotme/homebrew-tap`.
+This is the private half of a write-enabled deploy key on `nickxudotme/homebrew-tap`.
 
 Without that secret, the release still succeeds, but the cask must be updated manually:
 
