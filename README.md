@@ -13,6 +13,12 @@ The default backend uses macOS display topology control. When a display is turne
 - Swift 6 toolchain
 - Xcode command line tools
 
+## Install
+
+```sh
+brew install --cask nickxudotme/tap/screenoff
+```
+
 ## Build
 
 Build the command line tool and GUI executable:
