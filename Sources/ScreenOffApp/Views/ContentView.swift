@@ -1,4 +1,5 @@
 import SwiftUI
+import ScreenOffKit
 
 struct ContentView: View {
     @EnvironmentObject private var store: DisplayStore
@@ -15,9 +16,9 @@ struct ContentView: View {
                     }
                 }
 
-                if !store.disabledDisplays.isEmpty {
+                if !store.disabledDisplayRecords.isEmpty {
                     Section("Off") {
-                        ForEach(store.disabledDisplays) { display in
+                        ForEach(store.disabledDisplayRecords) { display in
                             DisabledDisplayRow(display: display)
                                 .tag(display.id)
                         }
@@ -77,7 +78,7 @@ private struct DisplayRow: View {
 }
 
 private struct DisabledDisplayRow: View {
-    let display: DisabledDisplay
+    let display: DisabledDisplayRecord
 
     var body: some View {
         Label {
@@ -85,6 +86,9 @@ private struct DisabledDisplayRow: View {
                 Text(display.title)
                 Text("ID \(display.id)")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(display.backend.label)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         } icon: {
@@ -113,6 +117,7 @@ private struct DetailView: View {
                 EmptySelectionView()
             }
 
+            BackendPicker()
             ManualRestoreView(manualRestoreID: $manualRestoreID)
 
             Spacer()
@@ -154,6 +159,19 @@ private struct DetailView: View {
 
             Spacer()
         }
+    }
+}
+
+private struct BackendPicker: View {
+    @EnvironmentObject private var store: DisplayStore
+
+    var body: some View {
+        Picker("Backend", selection: $store.selectedBackend) {
+            ForEach(DisplayBackend.allCases) { backend in
+                Text(backend.label).tag(backend)
+            }
+        }
+        .pickerStyle(.segmented)
     }
 }
 
@@ -269,7 +287,7 @@ private struct ActiveDisplayDetail: View {
 
 private struct DisabledDisplayDetail: View {
     @EnvironmentObject private var store: DisplayStore
-    let display: DisabledDisplay
+    let display: DisabledDisplayRecord
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -282,6 +300,21 @@ private struct DisabledDisplayDetail: View {
                         .font(.title3.weight(.semibold))
                     Text("Turned off from the desktop layout")
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+                GridRow {
+                    Text("Display ID").foregroundStyle(.secondary)
+                    Text("\(display.id)")
+                }
+                GridRow {
+                    Text("Backend").foregroundStyle(.secondary)
+                    Text(display.backend.label)
+                }
+                GridRow {
+                    Text("Turned Off").foregroundStyle(.secondary)
+                    Text(display.disabledAt == .distantPast ? "Unknown" : display.disabledAt.formatted(date: .abbreviated, time: .shortened))
                 }
             }
 

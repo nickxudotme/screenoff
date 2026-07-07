@@ -1,32 +1,35 @@
 import Foundation
+import ScreenOffKit
 
 @MainActor
 final class DisplayStore: ObservableObject {
     @Published private(set) var displays: [DisplayItem] = []
-    @Published private(set) var disabledDisplayIDs: [UInt32] = []
+    @Published private(set) var disabledDisplayRecords: [DisabledDisplayRecord] = []
     @Published var selectedDisplayID: UInt32?
     @Published var isBusy = false
     @Published var status = "Ready"
     @Published var errorMessage: String?
+    @Published var selectedBackend: DisplayBackend = .auto
 
-    private let disabledIDsKey = "disabledDisplayIDs"
+    private let disabledRecordsKey = "disabledDisplayRecords"
+    private let legacyDisabledIDsKey = "disabledDisplayIDs"
     private let client: ScreenOffClient
 
     init() {
         self.client = (try? ScreenOffClient.resolved()) ?? ScreenOffClient(executableURL: URL(fileURLWithPath: "/usr/bin/false"))
-        self.disabledDisplayIDs = Self.loadDisabledIDs(key: disabledIDsKey)
+        self.disabledDisplayRecords = Self.loadDisabledRecords(recordsKey: disabledRecordsKey, legacyIDsKey: legacyDisabledIDsKey)
     }
 
     var selectedDisplay: DisplayItem? {
         displays.first { $0.id == selectedDisplayID }
     }
 
-    var selectedDisabledDisplay: DisabledDisplay? {
-        disabledDisplays.first { $0.id == selectedDisplayID }
+    var selectedDisabledDisplay: DisabledDisplayRecord? {
+        disabledDisplayRecords.first { $0.id == selectedDisplayID }
     }
 
-    var disabledDisplays: [DisabledDisplay] {
-        disabledDisplayIDs.map { DisabledDisplay(id: $0) }
+    var disabledDisplayIDs: [UInt32] {
+        disabledDisplayRecords.map(\.id)
     }
 
     func refresh() async {
@@ -34,7 +37,7 @@ final class DisplayStore: ObservableObject {
             let items = try await client.listDisplays()
             displays = items
             let selectedIsActive = items.contains { $0.id == selectedDisplayID }
-            let selectedIsDisabled = disabledDisplayIDs.contains { $0 == selectedDisplayID }
+            let selectedIsDisabled = disabledDisplayRecords.contains { $0.id == selectedDisplayID }
             if selectedDisplayID == nil || (!selectedIsActive && !selectedIsDisabled) {
                 selectedDisplayID = items.first(where: { !$0.isMain })?.id ?? items.first?.id
             }
@@ -44,8 +47,9 @@ final class DisplayStore: ObservableObject {
 
     func disable(_ display: DisplayItem) async {
         await runBusy(status: "Turning off \(display.displayTitle)...") {
-            try await client.disable(display: display)
-            rememberDisabled(id: display.id)
+            let backend = selectedBackend
+            try await client.disable(display: display, backend: backend)
+            rememberDisabled(display: display, backend: backend)
             selectedDisplayID = display.id
             try await Task.sleep(nanoseconds: 500_000_000)
             let items = try await client.listDisplays()
@@ -54,13 +58,13 @@ final class DisplayStore: ObservableObject {
         }
     }
 
-    func restore(_ disabledDisplay: DisabledDisplay) async {
-        await restore(id: disabledDisplay.id)
+    func restore(_ disabledDisplay: DisabledDisplayRecord) async {
+        await restore(id: disabledDisplay.id, backend: disabledDisplay.backend)
     }
 
-    func restore(id: UInt32) async {
+    func restore(id: UInt32, backend: DisplayBackend? = nil) async {
         await runBusy(status: "Restoring Display \(id)...") {
-            try await client.restore(displayID: id)
+            try await client.restore(displayID: id, backend: backend ?? selectedBackend)
             forgetDisabled(id: id)
             try await Task.sleep(nanoseconds: 800_000_000)
             displays = try await client.listDisplays()
@@ -70,9 +74,9 @@ final class DisplayStore: ObservableObject {
     }
 
     func restoreAllDisabled() async {
-        let ids = disabledDisplayIDs
-        for id in ids {
-            await restore(id: id)
+        let records = disabledDisplayRecords
+        for record in records {
+            await restore(record)
         }
     }
 
@@ -89,25 +93,36 @@ final class DisplayStore: ObservableObject {
         isBusy = false
     }
 
-    private func rememberDisabled(id: UInt32) {
-        if !disabledDisplayIDs.contains(id) {
-            disabledDisplayIDs.append(id)
-            saveDisabledIDs()
-        }
+    private func rememberDisabled(display: DisplayItem, backend: DisplayBackend) {
+        disabledDisplayRecords.removeAll { $0.id == display.id }
+        disabledDisplayRecords.insert(
+            DisabledDisplayRecord(id: display.id, name: display.displayTitle, backend: backend, disabledAt: Date()),
+            at: 0
+        )
+        saveDisabledRecords()
     }
 
     private func forgetDisabled(id: UInt32) {
-        disabledDisplayIDs.removeAll { $0 == id }
-        saveDisabledIDs()
+        disabledDisplayRecords.removeAll { $0.id == id }
+        saveDisabledRecords()
     }
 
-    private func saveDisabledIDs() {
-        let value = disabledDisplayIDs.map(String.init).joined(separator: ",")
-        UserDefaults.standard.set(value, forKey: disabledIDsKey)
+    private func saveDisabledRecords() {
+        if let data = try? JSONEncoder().encode(disabledDisplayRecords) {
+            UserDefaults.standard.set(data, forKey: disabledRecordsKey)
+        }
     }
 
-    private static func loadDisabledIDs(key: String) -> [UInt32] {
-        let raw = UserDefaults.standard.string(forKey: key) ?? ""
-        return raw.split(separator: ",").compactMap { UInt32($0) }
+    private static func loadDisabledRecords(recordsKey: String, legacyIDsKey: String) -> [DisabledDisplayRecord] {
+        if let data = UserDefaults.standard.data(forKey: recordsKey),
+           let records = try? JSONDecoder().decode([DisabledDisplayRecord].self, from: data) {
+            return records
+        }
+
+        let raw = UserDefaults.standard.string(forKey: legacyIDsKey) ?? ""
+        return raw.split(separator: ",").compactMap { value in
+            guard let id = UInt32(value) else { return nil }
+            return DisabledDisplayRecord(id: id, name: "Display \(id)", backend: .coregraphics, disabledAt: .distantPast)
+        }
     }
 }

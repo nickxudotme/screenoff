@@ -1,8 +1,13 @@
 import Foundation
+import ScreenOffKit
 
 struct CommandResult {
-    let output: String
+    let data: Data
     let status: Int32
+
+    var output: String {
+        String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
 }
 
 struct ScreenOffClient {
@@ -24,24 +29,29 @@ struct ScreenOffClient {
     }
 
     func listDisplays() async throws -> [DisplayItem] {
-        let result = try run(["list"])
+        let result = try run(["list", "--json"])
         guard result.status == 0 else {
             throw ScreenOffError.commandFailed(result.output)
         }
-        return result.output
-            .split(separator: "\n")
-            .compactMap { DisplayParser.parse(String($0)) }
+
+        do {
+            return try DisplayParser.parseJSON(result.data)
+        } catch {
+            return result.output
+                .split(separator: "\n")
+                .compactMap { DisplayParser.parseLegacyLine(String($0)) }
+        }
     }
 
-    func disable(display: DisplayItem) async throws {
-        let result = try run(["off", "#\(display.index)", "--backend", "coregraphics"])
+    func disable(display: DisplayItem, backend: DisplayBackend) async throws {
+        let result = try run(["off", "#\(display.index)", "--backend", backend.rawValue])
         guard result.status == 0 else {
             throw ScreenOffError.commandFailed(result.output)
         }
     }
 
-    func restore(displayID: UInt32) async throws {
-        let result = try run(["on", "\(displayID)", "--backend", "coregraphics"])
+    func restore(displayID: UInt32, backend: DisplayBackend) async throws {
+        let result = try run(["on", "\(displayID)", "--backend", backend.rawValue])
         guard result.status == 0 else {
             throw ScreenOffError.commandFailed(result.output)
         }
@@ -60,8 +70,7 @@ struct ScreenOffClient {
         process.waitUntilExit()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return CommandResult(output: output, status: process.terminationStatus)
+        return CommandResult(data: data, status: process.terminationStatus)
     }
 }
 
@@ -76,43 +85,5 @@ enum ScreenOffError: LocalizedError {
         case .commandFailed(let output):
             return output.isEmpty ? "The command failed without output." : output
         }
-    }
-}
-
-enum DisplayParser {
-    static func parse(_ line: String) -> DisplayItem? {
-        let tokens = line.split(separator: " ", maxSplits: 4).map(String.init)
-        guard tokens.count == 5,
-              tokens[0].hasPrefix("#"),
-              let index = Int(tokens[0].dropFirst()),
-              tokens[1].hasPrefix("id="),
-              let id = UInt32(tokens[1].dropFirst(3)) else {
-            return nil
-        }
-
-        let state = tokens[2]
-        let geometry = tokens[3]
-        let remainder = tokens[4]
-
-        let knownFlagSets = [
-            "main, built-in, online",
-            "main, built-in, offline",
-            "built-in, online",
-            "built-in, offline",
-            "main, online",
-            "main, offline",
-            "online",
-            "offline"
-        ]
-
-        for flagText in knownFlagSets {
-            if remainder.hasPrefix(flagText) {
-                let name = remainder.dropFirst(flagText.count).trimmingCharacters(in: .whitespaces)
-                let flags = flagText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-                return DisplayItem(index: index, id: id, name: name, state: state, geometry: geometry, flags: flags)
-            }
-        }
-
-        return DisplayItem(index: index, id: id, name: remainder, state: state, geometry: geometry, flags: [])
     }
 }

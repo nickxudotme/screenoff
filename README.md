@@ -57,6 +57,7 @@ dist/ScreenOff.app
 
 ```sh
 screenoff list
+screenoff list --json
 screenoff off <display>
 screenoff on <display>
 screenoff on all
@@ -99,6 +100,7 @@ open dist/ScreenOff.app
 ```
 
 The app lists active displays, protects the main display from accidental shutoff, remembers display IDs turned off through the app, and lets you restore a display manually by ID.
+The GUI uses the `auto` backend by default and records the name, display ID, backend, and time for displays it turns off.
 
 ## Backends
 

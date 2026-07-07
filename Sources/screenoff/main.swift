@@ -361,7 +361,7 @@ struct M1DDCController {
 func usage() -> String {
     """
     Usage:
-      screenoff list
+      screenoff list [--json]
       screenoff off <display> [--force-main] [--backend auto|ddc|m1ddc|coregraphics]
       screenoff on <display|all> [--backend auto|ddc|m1ddc|coregraphics]
       screenoff toggle <display> [--force-main]
@@ -371,6 +371,15 @@ func usage() -> String {
       #2              1-based index from `list`
       studio          case-insensitive name fragment
     """
+}
+
+struct DisplayJSON: Encodable {
+    let index: Int
+    let id: UInt32
+    let name: String
+    let state: String
+    let geometry: String
+    let flags: [String]
 }
 
 func displayNameMap() -> [String: String] {
@@ -447,22 +456,51 @@ func fetchDisplays(coreGraphics: PrivateCoreGraphics? = nil) throws -> [Display]
     }
 }
 
+func displayState(_ display: Display) -> String {
+    display.enabled.map { $0 ? "enabled" : "disabled" } ?? (display.isActive ? "active" : "inactive")
+}
+
+func displayFlags(_ display: Display) -> [String] {
+    [
+        display.isMain ? "main" : nil,
+        display.isBuiltin ? "built-in" : nil,
+        display.isOnline ? "online" : "offline"
+    ].compactMap { $0 }
+}
+
+func displayGeometry(_ display: Display) -> String {
+    let width = Int(display.bounds.width)
+    let height = Int(display.bounds.height)
+    let x = Int(display.bounds.origin.x)
+    let y = Int(display.bounds.origin.y)
+    return "\(width)x\(height)+\(x)+\(y)"
+}
+
 func printDisplays(_ displays: [Display]) {
     for display in displays {
-        let enabledText = display.enabled.map { $0 ? "enabled" : "disabled" } ?? (display.isActive ? "active" : "inactive")
-        let flags = [
-            display.isMain ? "main" : nil,
-            display.isBuiltin ? "built-in" : nil,
-            display.isOnline ? "online" : "offline"
-        ].compactMap { $0 }.joined(separator: ", ")
-
-        let width = Int(display.bounds.width)
-        let height = Int(display.bounds.height)
-        let x = Int(display.bounds.origin.x)
-        let y = Int(display.bounds.origin.y)
-
-        print("#\(display.index) id=\(display.id) \(enabledText) \(width)x\(height)+\(x)+\(y) \(flags) \(display.name)")
+        let flags = displayFlags(display).joined(separator: ", ")
+        print("#\(display.index) id=\(display.id) \(displayState(display)) \(displayGeometry(display)) \(flags) \(display.name)")
     }
+}
+
+func printDisplaysJSON(_ displays: [Display]) throws {
+    let payload = displays.map { display in
+        DisplayJSON(
+            index: display.index,
+            id: display.id,
+            name: display.name,
+            state: displayState(display),
+            geometry: displayGeometry(display),
+            flags: displayFlags(display)
+        )
+    }
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(payload)
+    guard let output = String(data: data, encoding: .utf8) else {
+        throw CLIError.usage("Failed to encode display list as JSON.")
+    }
+    print(output)
 }
 
 func resolveDisplay(_ query: String, in displays: [Display]) throws -> Display {
@@ -542,14 +580,28 @@ func setDisplay(_ display: Display, enabled: Bool, backend: Backend) throws {
     case .auto:
         do {
             try PrivateCoreGraphics().set(display: display.id, enabled: enabled)
-        } catch CLIError.coreGraphicsSymbolMissing {
+        } catch {
+            let coreGraphicsError = error
             do {
                 try DDCController().setPowerMode(enabled ? .on : .off, for: display)
             } catch {
-                try M1DDCController().setPowerMode(enabled ? .on : .off, for: display)
+                let ddcError = error
+                do {
+                    try M1DDCController().setPowerMode(enabled ? .on : .off, for: display)
+                } catch {
+                    throw CLIError.ddcFailed(display, [
+                        "coregraphics: \(coreGraphicsError)",
+                        "ddc: \(ddcError)",
+                        "m1ddc: \(error)"
+                    ])
+                }
             }
         }
     }
+}
+
+func canRestoreSyntheticDisplay(command: String, backend: Backend) -> Bool {
+    command == "on" && (backend == .coreGraphics || backend == .auto)
 }
 
 func run(arguments: [String]) throws {
@@ -563,7 +615,12 @@ func run(arguments: [String]) throws {
 
     case "list":
         let coreGraphics = try? PrivateCoreGraphics()
-        printDisplays(try fetchDisplays(coreGraphics: coreGraphics))
+        let displays = try fetchDisplays(coreGraphics: coreGraphics)
+        if containsFlag("--json", in: arguments) {
+            try printDisplaysJSON(displays)
+        } else {
+            printDisplays(displays)
+        }
 
     case "off", "on", "toggle":
         let coreGraphics = try? PrivateCoreGraphics()
@@ -591,7 +648,7 @@ func run(arguments: [String]) throws {
         let display: Display
         do {
             display = try resolveDisplay(selector, in: displays)
-        } catch CLIError.displayNotFound where command == "on" && backend == .coreGraphics {
+        } catch CLIError.displayNotFound where canRestoreSyntheticDisplay(command: command, backend: backend) {
             let rawSelector = selector.hasPrefix("#") ? String(selector.dropFirst()) : selector
             guard let id = CGDirectDisplayID(rawSelector) else {
                 throw CLIError.displayNotFound(selector)

@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Resolve version
         run: |
@@ -37,6 +39,9 @@ jobs:
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "TAG=${TAG}" >> "$GITHUB_ENV"
 
+      - name: Run tests
+        run: swift test
+
       - name: Update bundle version
         run: |
           set -euo pipefail
@@ -45,6 +50,15 @@ jobs:
 
       - name: Build app bundle
         run: ./scripts/build-release.sh
+
+      - name: Verify app bundle
+        run: |
+          set -euo pipefail
+          test -x dist/ScreenOff.app/Contents/MacOS/ScreenOffApp
+          test -x dist/ScreenOff.app/Contents/Resources/screenoff
+          test -f dist/ScreenOff.app/Contents/Resources/ScreenOff.icns
+          test "$(plutil -extract CFBundleIconFile raw dist/ScreenOff.app/Contents/Info.plist)" = "ScreenOff"
+          test "$(plutil -extract CFBundleShortVersionString raw dist/ScreenOff.app/Contents/Info.plist)" = "$VERSION"
 
       - name: Package zip
         run: |
@@ -60,6 +74,13 @@ jobs:
             echo
             echo "Unsigned macOS build."
             echo
+            PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+            if [ -n "$PREVIOUS_TAG" ]; then
+              echo "Changes since ${PREVIOUS_TAG}:"
+              echo
+              git log --pretty='- %s' "${PREVIOUS_TAG}..${TAG}"
+              echo
+            fi
             echo "SHA-256:"
             echo
             echo "\`\`\`"
