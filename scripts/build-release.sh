@@ -21,6 +21,7 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$ROOT/.build/release/ScreenOffApp" "$MACOS_DIR/ScreenOffApp"
 cp "$ROOT/.build/release/screenoff" "$RESOURCES_DIR/screenoff"
 cp "$ROOT/Resources/ScreenOff-Info.plist" "$CONTENTS_DIR/Info.plist"
+cp "$ROOT/Resources/ScreenOff.icns" "$RESOURCES_DIR/ScreenOff.icns"
 
 if [ -x "$ROOT/Vendor/m1ddc/m1ddc" ]; then
   cp "$ROOT/Vendor/m1ddc/m1ddc" "$RESOURCES_DIR/m1ddc"
