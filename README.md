@@ -5,7 +5,7 @@ ScreenOff is a small macOS utility for turning displays off and restoring them l
 - `screenoff`, a command line tool
 - `ScreenOff.app`, a simple SwiftUI app
 
-ScreenOff has one user-facing action: connect or disconnect an external display. By default it uses macOS display-topology control, so a disconnected display disappears from System Settings and the usable desktop layout. It asks WindowServer for the full display inventory when reconnecting, which includes a display ScreenOff disconnected even though it has left the public online-display list. A small local history is only a fallback for a monitor that WindowServer no longer enumerates. DDC/CI and m1ddc are compatibility fallbacks when topology control is unavailable.
+ScreenOff has one user-facing action: connect or disconnect an external display. By default it uses macOS display-topology control, so a disconnected display disappears from System Settings and the usable desktop layout. It asks WindowServer for the full display inventory when reconnecting, which includes a display ScreenOff disconnected even though it has left the public online-display list. A small local history is only a fallback for a monitor that WindowServer no longer enumerates. DDC/CI and m1ddc remain explicit power-control backends; they are never used silently for a connection command.
 
 ## Requirements
 
@@ -109,7 +109,7 @@ The app lists connected displays, protects the main display from accidental disc
 - `coregraphics`: uses private CoreGraphics symbols to enable or disable a display in the macOS desktop topology.
 - `ddc`: a compatibility fallback that sends DDC/CI power commands directly through IOKit.
 - `m1ddc`: a compatibility fallback that uses the bundled `m1ddc` helper for DDC/CI commands.
-- `auto`: tries topology control first, then DDC/CI fallbacks.
+- `auto`: uses topology control only, preserving the connect/disconnect contract.
 
 The CoreGraphics backend depends on private macOS symbols, so it may break on future macOS releases.
 

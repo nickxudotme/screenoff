@@ -69,7 +69,15 @@ final class DisplayStore: ObservableObject {
 
     func reconnectAll() async {
         await runBusy(status: "Reconnecting external displays...") {
-            try await client.reconnectAll()
+            do {
+                try await client.reconnectAll()
+            } catch {
+                // Reconnect-all is intentionally best-effort. Refresh before
+                // surfacing any remaining failures so the UI reflects displays
+                // that did recover in the same operation.
+                applyInventory(try await client.listDisplays())
+                throw error
+            }
             try await Task.sleep(nanoseconds: 800_000_000)
             applyInventory(try await client.listDisplays())
             status = "Reconnected external displays"

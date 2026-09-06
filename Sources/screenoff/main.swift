@@ -19,6 +19,7 @@ struct Display: Equatable {
     let isActive: Bool
     let isOnline: Bool
     let enabled: Bool?
+    let isMirroredWithBuiltin: Bool
 }
 
 enum CLIError: Error, CustomStringConvertible {
@@ -33,6 +34,8 @@ enum CLIError: Error, CustomStringConvertible {
     case ddcFailed(Display, [String])
     case helperMissing(String)
     case helperFailed(String, Int32, String)
+    case bulkOperationFailed(String, [String])
+    case mirroredWithBuiltin(Display)
 
     var description: String {
         switch self {
@@ -59,6 +62,10 @@ enum CLIError: Error, CustomStringConvertible {
             return "Required helper '\(name)' was not found next to screenoff or in PATH."
         case .helperFailed(let name, let status, let output):
             return "\(name) failed with exit code \(status). \(output)"
+        case .bulkOperationFailed(let operation, let failures):
+            return "\(operation) completed with failures: \(failures.joined(separator: "; "))"
+        case .mirroredWithBuiltin(let display):
+            return "\(display.name) is mirrored with the built-in display. Switch to an extended desktop before disconnecting it."
         }
     }
 }
@@ -293,7 +300,7 @@ struct DDCController {
         var packet = ddcSetVCPPacket(feature: feature, value: value)
         try packet.withUnsafeMutableBufferPointer { buffer in
             guard let baseAddress = buffer.baseAddress else {
-                throw CLIError.ddcFailed(Display(index: 0, id: 0, name: "packet", vendor: 0, product: 0, serial: 0, systemUUID: nil, bounds: .zero, isMain: false, isBuiltin: false, isActive: false, isOnline: false, enabled: nil), ["empty packet"])
+                throw CLIError.ddcFailed(Display(index: 0, id: 0, name: "packet", vendor: 0, product: 0, serial: 0, systemUUID: nil, bounds: .zero, isMain: false, isBuiltin: false, isActive: false, isOnline: false, enabled: nil, isMirroredWithBuiltin: false), ["empty packet"])
             }
 
             var request = IOI2CRequest()
@@ -654,7 +661,8 @@ func fetchDisplays(coreGraphics: PrivateCoreGraphics? = nil) throws -> [Display]
             isBuiltin: CGDisplayIsBuiltin(id) != 0,
             isActive: CGDisplayIsActive(id) != 0,
             isOnline: CGDisplayIsOnline(id) != 0,
-            enabled: coreGraphics?.enabled(display: id)
+            enabled: coreGraphics?.enabled(display: id),
+            isMirroredWithBuiltin: false
         )
     }
 
@@ -662,23 +670,25 @@ func fetchDisplays(coreGraphics: PrivateCoreGraphics? = nil) throws -> [Display]
     // ID, then the main display, then an active member. Do not deduplicate merely by
     // EDID: two physical monitors can share incomplete or duplicate EDID fields.
     let grouped = Dictionary(grouping: candidates, by: { effectiveDisplayID($0.id) })
-    return grouped.values.compactMap { members in
-        members.sorted { lhs, rhs in
+    let operationTargets: [Display] = grouped.values.compactMap { members in
+        let isMixedBuiltinMirror = members.contains(where: \.isBuiltin) && members.contains(where: { !$0.isBuiltin })
+        guard let selected = members.sorted(by: { lhs, rhs in
+            if isMixedBuiltinMirror, lhs.isBuiltin != rhs.isBuiltin { return !lhs.isBuiltin }
             let lhsEffective = lhs.id == effectiveDisplayID(lhs.id)
             let rhsEffective = rhs.id == effectiveDisplayID(rhs.id)
             if lhsEffective != rhsEffective { return lhsEffective }
             if lhs.isMain != rhs.isMain { return lhs.isMain }
             if lhs.isActive != rhs.isActive { return lhs.isActive }
             return lhs.id < rhs.id
-        }.first
+        }).first else { return nil }
+        return Display(index: selected.index, id: selected.id, name: selected.name, vendor: selected.vendor, product: selected.product, serial: selected.serial, systemUUID: selected.systemUUID, bounds: selected.bounds, isMain: selected.isMain, isBuiltin: selected.isBuiltin, isActive: selected.isActive, isOnline: selected.isOnline, enabled: selected.enabled, isMirroredWithBuiltin: isMixedBuiltinMirror)
     }
-    .sorted { lhs, rhs in
+    return operationTargets.sorted { lhs, rhs in
         if lhs.isMain != rhs.isMain { return lhs.isMain }
         return lhs.id < rhs.id
     }
-    .enumerated()
-    .map { offset, display in
-        Display(index: offset + 1, id: display.id, name: display.name, vendor: display.vendor, product: display.product, serial: display.serial, systemUUID: display.systemUUID, bounds: display.bounds, isMain: display.isMain, isBuiltin: display.isBuiltin, isActive: display.isActive, isOnline: display.isOnline, enabled: display.enabled)
+    .enumerated().map { offset, display in
+        Display(index: offset + 1, id: display.id, name: display.name, vendor: display.vendor, product: display.product, serial: display.serial, systemUUID: display.systemUUID, bounds: display.bounds, isMain: display.isMain, isBuiltin: display.isBuiltin, isActive: display.isActive, isOnline: display.isOnline, enabled: display.enabled, isMirroredWithBuiltin: display.isMirroredWithBuiltin)
     }
 }
 
@@ -690,6 +700,7 @@ func displayFlags(_ display: Display) -> [String] {
     [
         display.isMain ? "main" : nil,
         display.isBuiltin ? "built-in" : nil,
+        display.isMirroredWithBuiltin ? "mirrored-with-built-in" : nil,
         display.isOnline ? "online" : "offline"
     ].compactMap { $0 }
 }
@@ -771,7 +782,8 @@ func syntheticDisplay(id: CGDirectDisplayID, selector: String, name: String? = n
         isBuiltin: false,
         isActive: false,
         isOnline: false,
-        enabled: false
+        enabled: false,
+        isMirroredWithBuiltin: false
     )
 }
 
@@ -800,6 +812,9 @@ enum Backend: String, Codable {
 
 @discardableResult
 func setDisplay(_ display: Display, enabled: Bool, backend: Backend) throws -> Backend {
+    if !enabled, display.isMirroredWithBuiltin {
+        throw CLIError.mirroredWithBuiltin(display)
+    }
     switch backend {
     case .coreGraphics:
         try PrivateCoreGraphics().set(display: display.id, enabled: enabled)
@@ -811,28 +826,10 @@ func setDisplay(_ display: Display, enabled: Bool, backend: Backend) throws -> B
         try M1DDCController().setPowerMode(enabled ? .on : .off, for: display)
         return .m1ddc
     case .auto:
-        do {
-            try PrivateCoreGraphics().set(display: display.id, enabled: enabled)
-            return .coreGraphics
-        } catch {
-            let coreGraphicsError = error
-            do {
-                try DDCController().setPowerMode(enabled ? .on : .off, for: display)
-                return .ddc
-            } catch {
-                let ddcError = error
-                do {
-                    try M1DDCController().setPowerMode(enabled ? .on : .off, for: display)
-                    return .m1ddc
-                } catch {
-                    throw CLIError.ddcFailed(display, [
-                        "coregraphics: \(coreGraphicsError)",
-                        "ddc: \(ddcError)",
-                        "m1ddc: \(error)"
-                    ])
-                }
-            }
-        }
+        // Connection state is a desktop-topology operation. Do not silently
+        // substitute a DDC power command, which leaves the display connected.
+        try PrivateCoreGraphics().set(display: display.id, enabled: enabled)
+        return .coreGraphics
     }
 }
 
@@ -874,19 +871,22 @@ private func saveDisabledExternalDisplays(_ displays: [DisabledExternalDisplay])
 private func rememberDisconnectedDisplay(_ display: Display) throws {
     guard !display.isBuiltin else { return }
     var remembered = try loadDisabledExternalDisplays()
+    remembered.removeAll { savedDisplayMatches($0, display) }
     let identity = displayIdentity(vendor: display.vendor, product: display.product, serial: display.serial)
-    remembered.removeAll {
-        $0.id == display.id
-            || (display.systemUUID != nil && $0.uuid == display.systemUUID)
-            || (identity != nil && $0.identity == identity)
-    }
     remembered.append(DisabledExternalDisplay(id: display.id, name: display.name, uuid: display.systemUUID, identity: identity))
     try saveDisabledExternalDisplays(remembered)
 }
 
-private func forgetDisconnectedDisplay(id: CGDirectDisplayID) throws {
+private func savedDisplayMatches(_ saved: DisabledExternalDisplay, _ display: Display) -> Bool {
+    let identity = displayIdentity(vendor: display.vendor, product: display.product, serial: display.serial)
+    return (saved.uuid != nil && saved.uuid == display.systemUUID)
+        || (saved.identity != nil && saved.identity == identity)
+        || saved.id == display.id
+}
+
+private func forgetDisconnectedDisplay(matching display: Display) throws {
     var remembered = try loadDisabledExternalDisplays()
-    remembered.removeAll { $0.id == id }
+    remembered.removeAll { savedDisplayMatches($0, display) }
     try saveDisabledExternalDisplays(remembered)
 }
 
@@ -918,7 +918,8 @@ private func withCachedName(_ display: Display, name: String) -> Display {
         isBuiltin: display.isBuiltin,
         isActive: display.isActive,
         isOnline: display.isOnline,
-        enabled: display.enabled
+        enabled: display.enabled,
+        isMirroredWithBuiltin: display.isMirroredWithBuiltin
     )
 }
 
@@ -930,17 +931,15 @@ private func displaysIncludingDisabled(_ liveDisplays: [Display]) throws -> [Dis
     let liveIDs = Set(liveDisplays.map(\.id))
     let enrichedLiveDisplays = liveDisplays.map { display in
         guard !display.isBuiltin, isFallbackDisplayName(display.name, id: display.id),
-              let saved = savedDisplays.first(where: { saved in
-                  saved.id == display.id
-                      || (display.systemUUID != nil && saved.uuid == display.systemUUID)
-                      || (displayIdentity(vendor: display.vendor, product: display.product, serial: display.serial) != nil
-                          && saved.identity == displayIdentity(vendor: display.vendor, product: display.product, serial: display.serial))
-              }) else {
+              let saved = savedDisplays.first(where: { savedDisplayMatches($0, display) }) else {
             return display
         }
         return withCachedName(display, name: saved.name)
     }
-    let remembered = savedDisplays.filter { !liveIDs.contains($0.id) }
+    let remembered = savedDisplays.filter { saved in
+        !liveDisplays.contains { savedDisplayMatches(saved, $0) }
+            && !liveIDs.contains(saved.id)
+    }
     return enrichedLiveDisplays + remembered.enumerated().map { offset, saved in
         syntheticDisplay(
             id: saved.id,
@@ -971,18 +970,22 @@ private func turnOffExternalDisplays(_ displays: [Display], backend: Backend) th
 }
 
 private func turnOnExternalDisplays(_ displays: [Display], backend: Backend) throws {
-    let liveIDs = Set(displays.map(\.id))
-    for display in displays {
-        _ = try setDisplay(display, enabled: true, backend: backend)
-        print("enabled #\(display.index) \(display.name) [id=\(display.id)]")
+    let targets = displays.filter { !$0.isOnline || $0.enabled == false }
+    var failures: [String] = []
+    for display in targets {
+        do {
+            let usedBackend = try setDisplay(display, enabled: true, backend: backend)
+            if usedBackend == .coreGraphics {
+                try forgetDisconnectedDisplay(matching: display)
+            }
+            print("enabled #\(display.index) \(display.name) [id=\(display.id)]")
+        } catch {
+            failures.append("\(display.name) [id=\(display.id)]: \(error)")
+        }
     }
-
-    for saved in try loadDisabledExternalDisplays() where !liveIDs.contains(saved.id) {
-        let display = syntheticDisplay(id: saved.id, selector: String(saved.id))
-        _ = try setDisplay(display, enabled: true, backend: .coreGraphics)
-        print("enabled \(saved.name) [id=\(saved.id)]")
+    if !failures.isEmpty {
+        throw CLIError.bulkOperationFailed("Reconnect external displays", failures)
     }
-    try saveDisabledExternalDisplays([])
 }
 
 func canRestoreSyntheticDisplay(command: String, backend: Backend) -> Bool {
@@ -1094,7 +1097,9 @@ func run(arguments: [String]) throws {
 
         let usedBackend = try setDisplay(display, enabled: shouldEnable, backend: backend)
         if shouldEnable {
-            try forgetDisconnectedDisplay(id: display.id)
+            if usedBackend == .coreGraphics {
+                try forgetDisconnectedDisplay(matching: display)
+            }
         } else if usedBackend == .coreGraphics {
             try rememberDisconnectedDisplay(display)
         }
