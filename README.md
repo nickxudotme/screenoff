@@ -5,7 +5,7 @@ ScreenOff is a small macOS utility for turning displays off and restoring them l
 - `screenoff`, a command line tool
 - `ScreenOff.app`, a simple SwiftUI app
 
-The default backend uses macOS display topology control. When a display is turned off this way, it disappears from the usable desktop layout, windows cannot be dragged there, and System Settings no longer treats it as active. ScreenOff can also fall back to DDC/CI power commands for external monitors.
+ScreenOff has one user-facing action: connect or disconnect an external display. By default it uses macOS display-topology control, so a disconnected display disappears from System Settings and the usable desktop layout. It asks WindowServer for the full display inventory when reconnecting, which includes a display ScreenOff disconnected even though it has left the public online-display list. A small local history is only a fallback for a monitor that WindowServer no longer enumerates. DDC/CI and m1ddc are compatibility fallbacks when topology control is unavailable.
 
 ## Requirements
 
@@ -58,12 +58,11 @@ dist/ScreenOff.app
 ```sh
 screenoff list
 screenoff list --json
-screenoff off <display>
-screenoff on <display>
-screenoff on all
-screenoff toggle <display>
-screenoff off <display> --backend coregraphics
-screenoff off <display> --backend m1ddc
+screenoff disconnect <display>
+screenoff reconnect <display>
+screenoff disconnect all
+screenoff reconnect all
+screenoff toggle external
 ```
 
 `<display>` can be:
@@ -72,23 +71,27 @@ screenoff off <display> --backend m1ddc
 - a 1-based list index, for example `#2`
 - a case-insensitive name fragment, for example `studio`
 
-By default, `off` refuses to disable the main display. Add `--force-main` only if you really mean it:
+By default, `disconnect` refuses to disconnect the main display. Add `--force-main` only if you really mean it:
 
 ```sh
-screenoff off "#1" --force-main
+screenoff disconnect "#1" --force-main
 ```
 
-If you turn off the wrong display, restore all currently listed displays:
+To restore every disconnected external display:
 
 ```sh
-screenoff on all
+screenoff reconnect all
 ```
 
-If a display no longer appears in `screenoff list` after topology disable, restore it by numeric display ID:
+`toggle external` disconnects every external display when they are all connected. If one or more are already disconnected, it reconnects them all.
+
+If a monitor is physically unplugged and no longer appears in the system inventory, restore it by numeric display ID after reconnecting its cable:
 
 ```sh
-screenoff on 1234567890 --backend coregraphics
+screenoff reconnect 1234567890 --backend coregraphics
 ```
+
+`list` collapses CoreGraphics mirror-set members into one controllable display. The JSON output includes the system `uuid`, and an EDID-derived `identity` when the monitor exposes a complete vendor/model/serial tuple. Display IDs are routing handles that can change after reconnecting; the UUID and identity are used only to recognize a display, while WindowServer's current ID performs the reconnect.
 
 ## GUI Usage
 
@@ -99,14 +102,13 @@ Build the bundle, then open it:
 open dist/ScreenOff.app
 ```
 
-The app lists active displays, protects the main display from accidental shutoff, remembers display IDs turned off through the app, and lets you restore a display manually by ID.
-The GUI uses the `auto` backend by default and records the name, display ID, backend, and time for displays it turns off.
+The app lists connected displays, protects the main display from accidental disconnects, and keeps disconnected screens in a Disconnected section for one-click reconnection.
 
 ## Backends
 
 - `coregraphics`: uses private CoreGraphics symbols to enable or disable a display in the macOS desktop topology.
-- `ddc`: sends DDC/CI power mode commands directly through IOKit.
-- `m1ddc`: uses the bundled `m1ddc` helper for DDC/CI commands.
+- `ddc`: a compatibility fallback that sends DDC/CI power commands directly through IOKit.
+- `m1ddc`: a compatibility fallback that uses the bundled `m1ddc` helper for DDC/CI commands.
 - `auto`: tries topology control first, then DDC/CI fallbacks.
 
 The CoreGraphics backend depends on private macOS symbols, so it may break on future macOS releases.

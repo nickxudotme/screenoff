@@ -42,4 +42,13 @@ final class ScreenOffKitTests: XCTestCase {
         XCTAssertEqual(items[0].id, 42)
         XCTAssertTrue(items[0].isMain)
     }
+
+    func testDecodesDisplayIdentityWhenPresent() throws {
+        let data = """
+        [{"index": 1, "id": 42, "name": "Studio Display", "state": "active", "geometry": "5120x2880+0+0", "flags": ["online"], "identity": "edid:1552:123:456"}]
+        """.data(using: .utf8)!
+
+        let item = try XCTUnwrap(DisplayParser.parseJSON(data).first)
+        XCTAssertEqual(item.identity, "edid:1552:123:456")
+    }
 }

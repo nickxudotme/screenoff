@@ -4,7 +4,6 @@ import ScreenOffKit
 struct ContentView: View {
     @EnvironmentObject private var store: DisplayStore
     @State private var pendingDisable: DisplayItem?
-    @State private var manualRestoreID = ""
 
     var body: some View {
         NavigationSplitView {
@@ -16,9 +15,9 @@ struct ContentView: View {
                     }
                 }
 
-                if !store.disabledDisplayRecords.isEmpty {
-                    Section("Off") {
-                        ForEach(store.disabledDisplayRecords) { display in
+                if !store.disconnectedDisplays.isEmpty {
+                    Section("Disconnected") {
+                        ForEach(store.disconnectedDisplays) { display in
                             DisabledDisplayRow(display: display)
                                 .tag(display.id)
                         }
@@ -38,21 +37,21 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            DetailView(pendingDisable: $pendingDisable, manualRestoreID: $manualRestoreID)
+            DetailView(pendingDisable: $pendingDisable)
         }
-        .alert("Turn off this display?", isPresented: Binding(
+        .alert("Disconnect this display?", isPresented: Binding(
             get: { pendingDisable != nil },
             set: { if !$0 { pendingDisable = nil } }
         ), presenting: pendingDisable) { display in
-            Button("Turn Off", role: .destructive) {
-                Task { await store.disable(display) }
+            Button("Disconnect", role: .destructive) {
+                Task { await store.disconnect(display) }
                 pendingDisable = nil
             }
             Button("Cancel", role: .cancel) {
                 pendingDisable = nil
             }
         } message: { display in
-            Text("\(display.displayTitle) will disappear from the macOS desktop layout. Restore it later with its display ID: \(display.id).")
+            Text("\(display.displayTitle) will disappear from the macOS desktop layout. It remains available here for one-click reconnection.")
         }
     }
 }
@@ -65,7 +64,7 @@ private struct DisplayRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(display.displayTitle)
                     .lineLimit(1)
-                Text("ID \(display.id) \(display.geometry)")
+                Text(display.geometry)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -78,16 +77,13 @@ private struct DisplayRow: View {
 }
 
 private struct DisabledDisplayRow: View {
-    let display: DisabledDisplayRecord
+    let display: DisplayItem
 
     var body: some View {
         Label {
             VStack(alignment: .leading, spacing: 2) {
-                Text(display.title)
-                Text("ID \(display.id)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(display.backend.label)
+                Text(display.displayTitle)
+                Text("Disconnected")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -101,13 +97,12 @@ private struct DisabledDisplayRow: View {
 private struct DetailView: View {
     @EnvironmentObject private var store: DisplayStore
     @Binding var pendingDisable: DisplayItem?
-    @Binding var manualRestoreID: String
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    if let disabled = store.selectedDisabledDisplay {
+                    if let disabled = store.selectedDisconnectedDisplay {
                         DisabledDisplayDetail(display: disabled)
                     } else if let display = store.selectedDisplay {
                         ActiveDisplayDetail(display: display, pendingDisable: $pendingDisable)
@@ -116,14 +111,6 @@ private struct DetailView: View {
                     }
 
                     Divider()
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Controls")
-                            .font(.headline)
-                        BackendPicker()
-                            .frame(maxWidth: 560)
-                        ManualRestoreView(manualRestoreID: $manualRestoreID)
-                    }
 
                     if let error = store.errorMessage {
                         Text(error)
@@ -139,57 +126,6 @@ private struct DetailView: View {
 
         }
         .navigationTitle("Control")
-    }
-}
-
-private struct BackendPicker: View {
-    @EnvironmentObject private var store: DisplayStore
-
-    var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-            GridRow {
-                Text("Backend")
-                    .foregroundStyle(.secondary)
-                Picker("Backend", selection: $store.selectedBackend) {
-                    ForEach(DisplayBackend.allCases) { backend in
-                        Text(backend.label).tag(backend)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-            }
-        }
-    }
-}
-
-private struct ManualRestoreView: View {
-    @EnvironmentObject private var store: DisplayStore
-    @Binding var manualRestoreID: String
-
-    private var parsedID: UInt32? {
-        UInt32(manualRestoreID.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-            GridRow {
-                Text("Restore")
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 10) {
-                    TextField("Display ID", text: $manualRestoreID)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 140)
-
-                    Button {
-                        guard let id = parsedID else { return }
-                        Task { await store.restore(id: id) }
-                    } label: {
-                        Label("Restore", systemImage: "rectangle.badge.plus")
-                    }
-                    .disabled(parsedID == nil || store.isBusy)
-                }
-            }
-        }
     }
 }
 
@@ -224,7 +160,7 @@ private struct ActiveDisplayDetail: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(display.displayTitle)
                         .font(.title2.weight(.semibold))
-                    Text("Display ID \(display.id)")
+                    Text(display.geometry)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -248,7 +184,7 @@ private struct ActiveDisplayDetail: View {
                 Button(role: .destructive) {
                     pendingDisable = display
                 } label: {
-                    Label("Turn Off Display", systemImage: "rectangle.badge.minus")
+                    Label("Disconnect Display", systemImage: "rectangle.badge.minus")
                 }
                 .disabled(display.isMain || store.isBusy)
 
@@ -271,7 +207,7 @@ private struct ActiveDisplayDetail: View {
 
 private struct DisabledDisplayDetail: View {
     @EnvironmentObject private var store: DisplayStore
-    let display: DisabledDisplayRecord
+    let display: DisplayItem
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -281,32 +217,17 @@ private struct DisabledDisplayDetail: View {
                     .foregroundStyle(.orange)
                     .frame(width: 54)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(display.title)
+                    Text(display.displayTitle)
                         .font(.title2.weight(.semibold))
-                    Text("Turned off from the desktop layout")
+                    Text("Disconnected from the desktop layout")
                         .foregroundStyle(.secondary)
                 }
             }
 
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
-                GridRow {
-                    Text("Display ID").foregroundStyle(.secondary)
-                    Text("\(display.id)")
-                }
-                GridRow {
-                    Text("Backend").foregroundStyle(.secondary)
-                    Text(display.backend.label)
-                }
-                GridRow {
-                    Text("Turned Off").foregroundStyle(.secondary)
-                    Text(display.disabledAt == .distantPast ? "Unknown" : display.disabledAt.formatted(date: .abbreviated, time: .shortened))
-                }
-            }
-
             Button {
-                Task { await store.restore(display) }
+                Task { await store.reconnect(display) }
             } label: {
-                Label("Restore Display", systemImage: "rectangle.badge.plus")
+                Label("Reconnect Display", systemImage: "rectangle.badge.plus")
             }
             .disabled(store.isBusy)
         }

@@ -1,0 +1,50 @@
+{
+  "name": "screenoff",
+  "title": "ScreenOff",
+  "version": "0.1.0",
+  "description": "Control ScreenOff displays from Raycast",
+  "icon": "screenoff.png",
+  "author": "nickxudotme",
+  "categories": ["System"],
+  "platforms": ["macOS"],
+  "scripts": {
+    "prepare-cli": "./scripts/prepare-cli.sh",
+    "dev": "npm run prepare-cli && ray develop",
+    "build": "npm run prepare-cli && ray build -e dist",
+    "lint": "ray lint"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@raycast/api": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "commands": [
+      {
+        "name": "manage-displays",
+        "title": "Manage Displays",
+        "description": "List displays and control an individual display",
+        "mode": "view"
+      },
+      {
+        "name": "external-on",
+        "title": "Reconnect External Displays",
+        "description": "Reconnect all external displays disconnected by ScreenOff",
+        "mode": "no-view"
+      },
+      {
+        "name": "external-off",
+        "title": "Disconnect External Displays",
+        "description": "Disconnect all external displays while keeping them recoverable",
+        "mode": "no-view"
+      },
+      {
+        "name": "toggle-external",
+        "title": "Toggle External Displays",
+        "description": "Disconnect all when connected; otherwise reconnect all external displays",
+        "mode": "no-view"
+      }
+  ]
+}

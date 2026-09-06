@@ -21,11 +21,11 @@ struct ScreenOffApp: App {
                 }
                 .keyboardShortcut("r", modifiers: [.command])
 
-                Button("Restore All Off Displays") {
-                    Task { await store.restoreAllDisabled() }
+                Button("Reconnect All External Displays") {
+                    Task { await store.reconnectAll() }
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
-                .disabled(store.disabledDisplayIDs.isEmpty || store.isBusy)
+                .disabled(store.disconnectedDisplayIDs.isEmpty || store.isBusy)
             }
         }
     }

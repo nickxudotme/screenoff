@@ -43,15 +43,22 @@ struct ScreenOffClient {
         }
     }
 
-    func disable(display: DisplayItem, backend: DisplayBackend) async throws {
-        let result = try run(["off", "#\(display.index)", "--backend", backend.rawValue])
+    func disconnect(displayID: UInt32) async throws {
+        let result = try run(["disconnect", "\(displayID)"])
         guard result.status == 0 else {
             throw ScreenOffError.commandFailed(result.output)
         }
     }
 
-    func restore(displayID: UInt32, backend: DisplayBackend) async throws {
-        let result = try run(["on", "\(displayID)", "--backend", backend.rawValue])
+    func reconnect(displayID: UInt32) async throws {
+        let result = try run(["reconnect", "\(displayID)"])
+        guard result.status == 0 else {
+            throw ScreenOffError.commandFailed(result.output)
+        }
+    }
+
+    func reconnectAll() async throws {
+        let result = try run(["reconnect", "all"])
         guard result.status == 0 else {
             throw ScreenOffError.commandFailed(result.output)
         }

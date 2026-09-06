@@ -29,14 +29,22 @@ public struct DisplayItem: Identifiable, Hashable, Codable, Sendable {
     public let state: String
     public let geometry: String
     public let flags: [String]
+    /// A best-effort hardware fingerprint (vendor:model:serial). It is stable across
+    /// display-ID re-enumeration when the monitor exposes a usable serial number.
+    public let identity: String?
+    /// WindowServer's per-installation display identifier. Unlike a CoreGraphics
+    /// display ID it remains stable when the same screen is re-enumerated.
+    public let uuid: String?
 
-    public init(index: Int, id: UInt32, name: String, state: String, geometry: String, flags: [String]) {
+    public init(index: Int, id: UInt32, name: String, state: String, geometry: String, flags: [String], identity: String? = nil, uuid: String? = nil) {
         self.index = index
         self.id = id
         self.name = name
         self.state = state
         self.geometry = geometry
         self.flags = flags
+        self.identity = identity
+        self.uuid = uuid
     }
 
     public var isMain: Bool {
@@ -69,12 +77,18 @@ public struct DisabledDisplayRecord: Identifiable, Hashable, Codable, Sendable {
     public var name: String
     public var backend: DisplayBackend
     public var disabledAt: Date
+    /// Retained for matching history entries after macOS assigns a new display ID.
+    public var identity: String?
+    /// Retained for the same purpose when macOS provides its WindowServer UUID.
+    public var uuid: String?
 
-    public init(id: UInt32, name: String, backend: DisplayBackend, disabledAt: Date) {
+    public init(id: UInt32, name: String, backend: DisplayBackend, disabledAt: Date, identity: String? = nil, uuid: String? = nil) {
         self.id = id
         self.name = name
         self.backend = backend
         self.disabledAt = disabledAt
+        self.identity = identity
+        self.uuid = uuid
     }
 
     public var title: String {
