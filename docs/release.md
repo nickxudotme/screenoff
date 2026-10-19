@@ -34,9 +34,15 @@ sha256 "<zip sha256>"
 
 ## Unsigned App Behavior
 
-Homebrew can install the app and CLI, but macOS Gatekeeper may block the GUI on first launch because the app is unsigned and not notarized.
+The Homebrew cask installs the app and CLI, then uses `postflight_steps` to:
 
-If macOS reports that the app is damaged, remove the quarantine attribute after installation:
+1. Explain that ScreenOff is not notarized and print the exact command with the actual application directory.
+2. Run `sudo /usr/bin/xattr -dr com.apple.quarantine "<appdir>/ScreenOff.app"` automatically.
+3. Let sudo prompt for the Mac administrator password when authentication is needed. Homebrew handles the prompt; the cask does not read or store the password.
+
+These steps run during installation, reinstallation, and upgrades. They respect `brew --appdir`; only ScreenOff's quarantine attribute is removed. A terminal capable of accepting sudo authentication is required when there is no cached authentication. Removing quarantine does not sign or notarize the app.
+
+For manually downloaded ZIPs, if macOS blocks the app, run (adjust the installation path if needed):
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/ScreenOff.app

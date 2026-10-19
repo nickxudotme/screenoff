@@ -19,9 +19,9 @@ ScreenOff has one user-facing action: connect or disconnect an external display.
 brew install --cask nickxudotme/tap/screenoff
 ```
 
-ScreenOff is currently unsigned and not notarized. Homebrew can install it, but macOS may require manual approval in System Settings > Privacy & Security before the GUI opens for the first time.
+ScreenOff is currently unsigned and not notarized. The Homebrew cask prints an explanation and the exact command, then automatically removes `com.apple.quarantine` from the installed `ScreenOff.app`. If `sudo` requests authentication, enter your Mac administrator password in the terminal; input is hidden. An existing sudo authentication session may avoid another password prompt. This runs on installation, reinstallation, and upgrades, and respects Homebrew's `--appdir` setting.
 
-If macOS says the app is damaged, remove the quarantine attribute after installing:
+For a ZIP installed manually, remove the quarantine attribute yourself if macOS blocks the app (adjust the path if needed):
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/ScreenOff.app
